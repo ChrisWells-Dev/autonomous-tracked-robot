@@ -22,8 +22,6 @@ Both units are operational on the bench with bidirectional ROS2 control over MQT
 * MT6701 magnetic encoders on drive motors for odometry
 * Teach-and-repeat path recording node on the Pi4
 
-<img src="../images/buildlog1.jpg" width="620"/> ---
-
 <img src="../images/buildlog1.jpg" width="620"/>
 
 ## 2026-06-15 — Project Started
