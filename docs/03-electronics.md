@@ -1,37 +1,44 @@
 # Electronics & Wiring
 
-## Power Rails (Same for Both Units)
+## Power System
 
-Each unit runs off a shared breadboard with two rails:
+Three voltage rails, all sharing a common ground:
 
-* Bench supply 12V+ to 12V bar
-* Bench supply 12V- to ground bar
-* ESP32 VN pin to 5V bar
-* ESP32 GND to ground bar
-* All grounds share one rail
+* **12V** from LiFePO4 battery (12.8V nominal, 15Ah) to motor drivers
+* **5V** from Mini 360 DC buck converter (12V input) to IBT-2 VCC/EN and TB6612 VCC/STBY
+* **3.3V** from Mini 360 DC buck converter (12V input) to all sensors
 
-**Do not connect 12V to the ESP32. ESP32 is powered via USB only.**
+ESP32 is powered via USB only. The 3.3V sensor rail runs from a dedicated buck converter, not the ESP32's 3V3 pin.
+
+All grounds share one common rail.
 
 ---
 
 ## Scoop Unit
 
+<img src="../images/scoop-wiring-diagram.PNG" width="800"/>
+
 ### ESP32 Pin Map
 
-
-| GPIO | Function                    |
-| ---- | --------------------------- |
-| 14   | Right Motor RPWM (IBT-2 #1) |
-| 27   | Right Motor LPWM (IBT-2 #1) |
-| 25   | Left Motor RPWM (IBT-2 #2)  |
-| 26   | Left Motor LPWM (IBT-2 #2)  |
-| 33   | Actuator AIN1 (TB6612)      |
-| 32   | Actuator AIN2 (TB6612)      |
-| VN   | 5V out to 5V bar            |
-| GND  | Ground bar                  |
+| GPIO    | Function                            |
+| ------- | ----------------------------------- |
+| 14      | Right Motor RPWM (IBT-2 #1)         |
+| 27      | Right Motor LPWM (IBT-2 #1)         |
+| 25      | Left Motor RPWM (IBT-2 #2)          |
+| 26      | Left Motor LPWM (IBT-2 #2)          |
+| 33      | Actuator AIN1 (TB6612)              |
+| 32      | Actuator AIN2 (TB6612)              |
+| 16      | VL53L0X #1 XSHUT                    |
+| 5       | VL53L0X #2 XSHUT                    |
+| 21      | I2C SDA (shared bus)                |
+| 22      | I2C SCL (shared bus)                |
+| 34      | Limit switch extended (input only)  |
+| 35      | Limit switch retracted (input only) |
+| 36 (VP) | MT6701 encoder analog out           |
+| VN      | 5V out to 5V bar                    |
+| GND     | Ground bar                          |
 
 ### IBT-2 #1 (Right Motor)
-
 
 | IBT-2 Pin | Connection         |
 | --------- | ------------------ |
@@ -50,7 +57,6 @@ Each unit runs off a shared breadboard with two rails:
 
 ### IBT-2 #2 (Left Motor)
 
-
 | IBT-2 Pin | Connection        |
 | --------- | ----------------- |
 | B+        | 12V bar           |
@@ -68,7 +74,6 @@ Each unit runs off a shared breadboard with two rails:
 
 ### TB6612 (Actuator)
 
-
 | TB6612 Pin | Connection                               |
 | ---------- | ---------------------------------------- |
 | VM         | 12V bar                                  |
@@ -81,23 +86,88 @@ Each unit runs off a shared breadboard with two rails:
 | AO1        | Actuator black wire                      |
 | AO2        | Actuator red wire                        |
 
+### VL53L0X #1 (Front Proximity)
+
+| Sensor Pin | Connection                |
+| ---------- | ------------------------- |
+| VIN        | 3.3V bar (buck converter) |
+| GND        | Ground bar                |
+| SDA        | ESP32 GPIO 21             |
+| SCL        | ESP32 GPIO 22             |
+| XSHUT      | ESP32 GPIO 16             |
+| GPIO1      | Not connected             |
+
+### VL53L0X #2 (Bucket Distance)
+
+| Sensor Pin | Connection                |
+| ---------- | ------------------------- |
+| VIN        | 3.3V bar (buck converter) |
+| GND        | Ground bar                |
+| SDA        | ESP32 GPIO 21             |
+| SCL        | ESP32 GPIO 22             |
+| XSHUT      | ESP32 GPIO 5              |
+| GPIO1      | Not connected             |
+
+Both VL53L0X share the I2C bus. XSHUT pins stagger initialization and assign unique I2C addresses (0x30 and 0x31) at boot.
+
+### MPU6050 (IMU)
+
+| Sensor Pin | Connection                        |
+| ---------- | --------------------------------- |
+| VCC        | 3.3V bar (buck converter)         |
+| GND        | Ground bar                        |
+| SDA        | ESP32 GPIO 21                     |
+| SCL        | ESP32 GPIO 22                     |
+| AD0        | Ground bar (sets address to 0x68) |
+| INT        | Not connected                     |
+
+### MT6701 (Magnetic Encoder)
+
+| Sensor Pin | Connection                        |
+| ---------- | --------------------------------- |
+| VDD        | 3.3V bar (buck converter)         |
+| GND        | Ground bar                        |
+| Analog/PWM | ESP32 GPIO 36 (VP)                |
+| SCL        | Not connected (using analog mode) |
+| SDA        | Not connected (using analog mode) |
+
+Outputs 0-3.3V over 360 degrees of rotation. Requires a diametrically magnetized magnet mounted on the motor shaft within 0.5-2mm of the sensor face.
+
+### Limit Switches (Actuator End-Stops)
+
+Two switches using COM and NO (normally open) terminals:
+
+| Terminal | Connection            |
+| -------- | --------------------- |
+| COM      | Ground bar            |
+| NO       | ESP32 GPIO (34 or 35) |
+| NC       | Not connected         |
+
+Requires external 10k pull-up resistors from each GPIO to the 3.3V bar.
+
 ---
 
 ## Coop Unit
 
+<img src="../images/coop-wiring-diagram.png" width="800"/>
+
 ### ESP32 Pin Map
 
-
-| GPIO | Function                    |
-| ---- | --------------------------- |
-| 14   | Right Motor RPWM (IBT-2 #1) |
-| 27   | Right Motor LPWM (IBT-2 #1) |
-| 25   | Left Motor RPWM (IBT-2 #2)  |
-| 26   | Left Motor LPWM (IBT-2 #2)  |
-| 32   | Conveyor RPWM (IBT-2 #3)    |
-| 33   | Conveyor LPWM (IBT-2 #3)    |
-| VN   | 5V out to 5V bar            |
-| GND  | Ground bar                  |
+| GPIO    | Function                    |
+| ------- | --------------------------- |
+| 14      | Right Motor RPWM (IBT-2 #1) |
+| 27      | Right Motor LPWM (IBT-2 #1) |
+| 25      | Left Motor RPWM (IBT-2 #2)  |
+| 26      | Left Motor LPWM (IBT-2 #2)  |
+| 32      | Conveyor RPWM (IBT-2 #3)    |
+| 33      | Conveyor LPWM (IBT-2 #3)    |
+| 16      | VL53L0X #1 XSHUT            |
+| 5       | VL53L0X #2 XSHUT            |
+| 21      | I2C SDA (shared bus)        |
+| 22      | I2C SCL (shared bus)        |
+| 36 (VP) | MT6701 encoder analog out   |
+| VN      | 5V out to 5V bar            |
+| GND     | Ground bar                  |
 
 ### IBT-2 #1 (Right Motor)
 
@@ -108,7 +178,6 @@ Same wiring pattern as Scoop IBT-2 #1.
 Same wiring pattern as Scoop IBT-2 #2.
 
 ### IBT-2 #3 (Conveyor)
-
 
 | IBT-2 Pin | Connection            |
 | --------- | --------------------- |
@@ -125,22 +194,24 @@ Same wiring pattern as Scoop IBT-2 #2.
 | R\_IS     | Not connected         |
 | L\_IS     | Not connected         |
 
----
+### Sensors
 
-## Planned Additions
+Coop uses the same sensor configuration as scoop:
 
-* VL53L0X/L1X ToF sensors (I2C on GPIO 21/22) for proximity and dump positioning
-* Limit switches for actuator end-stop detection
-* MPU6050 IMU for heading and tilt
-* MT6701 magnetic encoders on drive motors for odometry
+* 2x VL53L0X (I2C, XSHUT on GPIO 16 and GPIO 5)
+* 1x MPU6050 (I2C, AD0 to ground)
+* 1x MT6701 encoder (analog on GPIO 36)
+
+Wiring is identical to scoop sensor tables above.
 
 ---
 
 ## Notes
 
 * If a motor spins the wrong direction, swap M+ and M- on that IBT-2
+* IBT-2 B+ is 12V power in, M+ is motor out. Do not swap B and M terminals.
 * TB6612 has 3 GND pins. All 3 must connect to ground bar.
-* ESP32s are powered via USB only. 12V never connects to the ESP32.
+* I2C bus stability improves with 4.7k pull-up resistors on SDA and SCL to the 3.3V rail.
 
 ---
 

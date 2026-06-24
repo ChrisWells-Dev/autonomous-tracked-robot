@@ -2,50 +2,78 @@
 
 ## Overview
 
-The Pi4 acts as the central brain for all units. All coordination logic, sensor processing, and unit communication runs on the Pi4. ESP32 controllers on each unit handle low level motor control and report state back to the Pi4 over WiFi.
+The Pi4 acts as the central brain for all units. All coordination logic, sensor processing, and unit communication runs on the Pi4. ESP32 controllers on each unit handle low level motor control, sensor reads, and report state back to the Pi4 over WiFi.
 
 ---
 
 ## Network Architecture
 
-Early consideration was given to running a dedicated router as the network hub for inter-unit communication. This was dropped in favour of running the Pi4 as the network coordinator directly. Simpler stack, fewer failure points, and the Pi4 has the headroom to handle it alongside its other responsibilities.
-
 ```
 Pi4 (ROS2 + Mosquitto MQTT Broker)
-    ├── Scoop ESP32 (WiFi client, motor control + actuator)
-    └── Coop ESP32 (WiFi client, motor control + conveyor)
+    ├── Scoop ESP32 (WiFi, motors + actuator + sensors)
+    └── Coop ESP32 (WiFi, motors + conveyor + sensors)
 ```
 
 ---
 
 ## Software Stack
 
-
 | Component           | Technology                                        |
-| ------------------- | ------------------------------------------------- |
+| --------------------- | --------------------------------------------------- |
 | OS                  | Ubuntu Server 24.04 LTS (arm64)                   |
 | Robotics framework  | ROS2 Jazzy                                        |
 | MQTT broker         | Mosquitto                                         |
 | ROS2-MQTT bridge    | ros-jazzy-mqtt-client (ika-rwth-aachen)           |
 | Motor control       | ESP32 firmware via PlatformIO (Arduino framework) |
-| Proximity sensing   | VL53L0X/L1X ToF via I2C (planned)                 |
+| Proximity sensing   | 2x VL53L0X ToF via I2C (Adafruit library)         |
+| IMU                 | MPU6050 accelerometer/gyroscope via I2C           |
+| Motor feedback      | MT6701 magnetic encoder via analog                |
 | Environment mapping | ROS2 + lidar (future phase)                       |
 
 ---
 
 ## Communication
 
-MQTT runs over the local WiFi network for all inter-unit messaging. The Pi4 runs the Mosquitto broker. ESP32 units subscribe to command topics and publish status back. This keeps real time motor control on the ESP32s where latency matters while the Pi4 handles coordination logic above.
+MQTT runs over the local WiFi network for all inter-unit messaging. The Pi4 runs the Mosquitto broker. ESP32 units subscribe to command topics and publish sensor telemetry back at 200ms intervals.
 
 ### MQTT Topic Map
 
+| MQTT Topic   | Direction    | Purpose                     |
+| -------------- | -------------- | ----------------------------- |
+| scoop/cmd    | Pi4 to Scoop | Motor and actuator commands |
+| scoop/status | Scoop to Pi4 | Sensor telemetry (JSON)     |
+| coop/cmd     | Pi4 to Coop  | Motor and conveyor commands |
+| coop/status  | Coop to Pi4  | Sensor telemetry (JSON)     |
 
-| MQTT Topic   | Direction    | Purpose                       |
-| ------------ | ------------ | ----------------------------- |
-| scoop/cmd    | Pi4 to Scoop | Motor and actuator commands   |
-| scoop/status | Scoop to Pi4 | Heartbeat and state reporting |
-| coop/cmd     | Pi4 to Coop  | Motor and conveyor commands   |
-| coop/status  | Coop to Pi4  | Heartbeat and state reporting |
+### Telemetry Format
+
+Each ESP32 publishes a JSON status message every 200ms:
+
+```json
+{
+  "d1": 342,
+  "d2": 8190,
+  "ax": -10568,
+  "ay": -9464,
+  "az": 8076,
+  "gx": 549,
+  "gy": 1038,
+  "gz": 427,
+  "le": 0,
+  "lr": 0,
+  "el": 1382
+}
+```
+
+| Field      | Sensor       | Description                                    |
+| ------------ | -------------- | ------------------------------------------------ |
+| d1         | VL53L0X #1   | Front distance in mm (8190 = out of range)     |
+| d2         | VL53L0X #2   | Bucket/hopper distance in mm                   |
+| ax, ay, az | MPU6050      | Accelerometer raw values (x, y, z)             |
+| gx, gy, gz | MPU6050      | Gyroscope raw values (x, y, z)                 |
+| le         | Limit switch | Actuator extended (0 or 1)                     |
+| lr         | Limit switch | Actuator retracted (0 or 1)                    |
+| el         | MT6701       | Encoder analog value (0-4095 over 360 degrees) |
 
 ### MQTT Bridge Config
 
@@ -102,7 +130,7 @@ ros2 topic echo /scoop/status
 ros2 topic echo /coop/status
 ```
 
-Both ESP32s connect automatically on power-up. The `alive` heartbeat confirms connectivity every 2 seconds.
+Both ESP32s connect automatically on power-up.
 
 ---
 
@@ -156,27 +184,37 @@ ros2 topic pub /coop/cmd std_msgs/msg/String "data: 'stop'" --once
 
 ## ESP32 Firmware
 
-Both ESP32s are flashed via PlatformIO in VS Code using the Arduino framework. PubSubClient handles MQTT. Each unit runs independently with its own command set. Source is in the `firmware/` directory.
+Both ESP32s are flashed via PlatformIO in VS Code using the Arduino framework. Source is in the `firmware/` directory.
 
-### PlatformIO Config (both units)
+### PlatformIO Config
 
 ```ini
 [env:esp32dev]
 platform = espressif32
 board = esp32dev
 framework = arduino
-lib_deps = knolleary/PubSubClient@^2.8
+lib_deps = 
+  knolleary/PubSubClient@^2.8
+  adafruit/Adafruit_VL53L0X@^1.2
+  electroniccats/MPU6050@^1.3
 monitor_speed = 115200
 ```
+
+### Sensor Initialization
+
+VL53L0X sensors share the I2C bus and require staggered XSHUT sequencing at boot to assign unique addresses. The MPU6050 initializes first while the bus is clean. Sensor initialization order:
+
+1. MPU6050 (address 0x68, AD0 tied to ground)
+2. VL53L0X #2 (XSHUT on GPIO 5, assigned address 0x31)
+3. VL53L0X #1 (XSHUT on GPIO 16, assigned address 0x30)
 
 ---
 
 ## Digital Twin (Planned)
 
-The long term goal is to connect the system to a live digital twin. Physical unit positions, sensor data, and operational state represented in real time in a 3D environment using Blender or Unreal Engine. Component models are already being built in Fusion 360 and will feed directly into this pipeline.
-
-This bridges the physical system with a visualization layer that mirrors real world state, enabling monitoring, simulation, and eventually predictive control from a 3D interface.
+The long term goal is to connect the system to a live digital twin. Physical unit positions, sensor data, and operational state represented in real time in a 3D environment. Component models are already being built in Fusion 360.
 
 ---
 
 [← Back](https://github.com/ChrisWells-Dev/autonomous-tracked-robot)
+
